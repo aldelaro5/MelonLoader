@@ -5,15 +5,15 @@ namespace MelonLoader.Bootstrap.Utils;
 
 public static unsafe partial class Dobby
 {
-    [LibraryImport("*", EntryPoint = "DobbyPrepare")]
+    [LibraryImport("dobby", EntryPoint = "DobbyPrepare")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     private static partial int Prepare(nint target, nint detour, nint* original);
 
-    [LibraryImport("*", EntryPoint = "DobbyCommit")]
+    [LibraryImport("dobby", EntryPoint = "DobbyCommit")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     private static partial int Commit(nint target);
 
-    [LibraryImport("*", EntryPoint = "DobbyDestroy")]
+    [LibraryImport("dobby", EntryPoint = "DobbyDestroy")]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     private static partial int Destroy(nint target);
 

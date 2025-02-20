@@ -127,7 +127,7 @@ internal static class MonoHandler
         MelonDebug.Log($"Setting Mono assemblies path to: {newAssembliesPath}");
         Mono.SetAssembliesPath(newAssembliesPath);
 
-        JitParseOptionsDetour(0, []);
+        //JitParseOptionsDetour(0, []);
         bool debuggerAlreadyEnabled = debugInitCalled || (Mono.DebugEnabled != null && Mono.DebugEnabled());
 
         if (LoaderConfig.Current.Loader.DebugMode && !debuggerAlreadyEnabled)
@@ -164,8 +164,10 @@ internal static class MonoHandler
         if (jitParseOptionsPatch == null)
             return;
 
+        MelonDebug.Log($"jit option: {string.Join(' ', argv)}");
         if (!LoaderConfig.Current.Loader.DebugMode)
         {
+            //jitParseOptionsPatch.Original(0, []);
             jitParseOptionsPatch.Original(argc, argv);
             return;
         }
@@ -192,8 +194,9 @@ internal static class MonoHandler
         argc++;
         newArgv[argc - 1] = newArgs;
         
-        MelonDebug.Log($"Adding jit option: {string.Join(' ', newArgs)}");
+        MelonDebug.Log($"New jit option: {string.Join(' ', newArgv)}");
 
+        //jitParseOptionsPatch.Original(1, [newArgs]);
         jitParseOptionsPatch.Original(argc, newArgv);
     }
 
@@ -242,8 +245,8 @@ internal static class MonoHandler
         if (ex != 0)
             return;
 
-        MelonDebug.Log("Patching invoke");
-        invokePatch = Dobby.CreatePatch<MonoLib.RuntimeInvokeFn>(Mono.RuntimeInvokePtr, InvokeDetour);
+        // MelonDebug.Log("Patching invoke");
+        // invokePatch = Dobby.CreatePatch<MonoLib.RuntimeInvokeFn>(Mono.RuntimeInvokePtr, InvokeDetour);
     }
 
     private static unsafe nint InvokeDetour(nint method, nint obj, void** args, ref nint ex)
@@ -251,15 +254,16 @@ internal static class MonoHandler
         if (invokePatch == null)
             return 0;
 
-        var result = invokePatch.Original(method, obj, args, ref ex);
-
         var name = Mono.GetMethodName(method);
         if (name == null ||
             ((!Mono.IsOld || (!name.Contains("Awake") && !name.Contains("DoSendMouseEvents")))
              && !name.Contains("Internal_ActiveSceneChanged")
              && !name.Contains("UnityEngine.ISerializationCallbackReceiver.OnAfterSerialize")))
-            return result;
+        {
+            return invokePatch.Original(method, obj, args, ref ex);
+        }
 
+        var result = invokePatch.Original(method, obj, args, ref ex);
         MelonDebug.Log("Invoke hijacked");
         invokePatch.Destroy();
 
@@ -294,7 +298,10 @@ internal static class MonoHandler
         var obj = Mono.AssemblyGetObject(Domain, monoAssembly);
 
         nint ex = 0;
-        Mono.RuntimeInvoke(assemblyManagerLoadInfo, 0, (void**)&obj, ref ex);
+        if (invokePatch != null)
+            invokePatch.Original(assemblyManagerLoadInfo, 0, (void**)&obj, ref ex);
+        else
+            Mono.RuntimeInvoke(assemblyManagerLoadInfo, 0, (void**)&obj, ref ex);
     }
 
     private static nint OnAssemblySearch(ref MonoLib.AssemblyName name, nint userData)
@@ -320,7 +327,9 @@ internal static class MonoHandler
         };
 
         nint ex = 0;
-        var reflectionAsm = (MonoLib.ReflectionAssembly*)Mono.RuntimeInvoke(assemblyManagerResolve, 0, args, ref ex);
+        var reflectionAsm = invokePatch != null
+            ? (MonoLib.ReflectionAssembly*)invokePatch.Original(assemblyManagerResolve, 0, args, ref ex)
+            : (MonoLib.ReflectionAssembly*)Mono.RuntimeInvoke(assemblyManagerResolve, 0, args, ref ex);
         return reflectionAsm == null ? 0 : reflectionAsm->Assembly;
     }
 

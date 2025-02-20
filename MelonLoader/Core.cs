@@ -4,6 +4,7 @@ using System.Reflection;
 using System.IO;
 using bHapticsLib;
 using System.Threading;
+using HarmonyLib;
 using MelonLoader.Resolver;
 using MelonLoader.Utils;
 using MelonLoader.InternalUtils;
@@ -21,6 +22,69 @@ namespace MelonLoader
 
         internal static HarmonyLib.Harmony HarmonyInstance;
         internal static bool Is_ALPHA_PreRelease = false;
+
+        // First step of the chainloader entrypoint: Harmony patch the main Unity assembly with a suitable hook
+        private static void OnAssemblyLoad(object sender, AssemblyLoadEventArgs args)
+        {
+            const string sceneManagerTypeName = "UnityEngine.SceneManagement.SceneManager";
+            const string displayTypeName = "UnityEngine.Display";
+            
+            var assembly = args.LoadedAssembly;
+            var assemblyName = assembly.GetName().Name;
+
+            if (assemblyName is not ("UnityEngine.CoreModule" or "UnityEngine"))
+                return;
+
+            try 
+            { 
+                AppDomain.CurrentDomain.AssemblyLoad -= OnAssemblyLoad;
+
+                var sceneManagerType = assembly.GetType(sceneManagerTypeName, false);
+                if (sceneManagerType != null)
+                {
+                    var activeSceneChangedMethod = sceneManagerType.GetMethod("Internal_ActiveSceneChanged",
+                                                                              BindingFlags.NonPublic | BindingFlags.Static);
+                    HarmonyInstance.Patch(activeSceneChangedMethod, prefix: new HarmonyMethod(typeof(Core), nameof(Entrypoint)));
+                    MelonLogger.Msg($"Hooked into {activeSceneChangedMethod.FullDescription()}");
+                    return;
+                }
+
+                var displayType = assembly.GetType(displayTypeName, false);
+                if (displayType != null)
+                {
+                    var recreateDisplayListMethod = displayType.GetMethod("RecreateDisplayList", BindingFlags.NonPublic | BindingFlags.Static);
+                    HarmonyInstance.Patch(recreateDisplayListMethod, postfix: new HarmonyMethod(typeof(Core), nameof(Entrypoint)));
+                    MelonLogger.Msg($"Hooked into {recreateDisplayListMethod.FullDescription()}");
+                    return;
+                }
+
+                MelonLogger.Error($"Couldn't find a suitable chainloader entrypoint in the {assemblyName} assembly because " +
+                                  $"{sceneManagerTypeName} or {displayTypeName} do not exist in the assembly");
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error($"Unexpected error occured when trying to hook into {assemblyName}: {e}");
+            }
+        }
+
+        private static bool alreadyCalled = false;
+
+        // Second step of the chainloader entrypoint: undo the Harmony patch and call the chainloader init method
+        private static void Entrypoint()
+        {
+            if (alreadyCalled)
+                return;
+            alreadyCalled = true;
+            try
+            {
+                HarmonyInstance.UnpatchSelf();
+                Start();
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error($"{e}");
+            }
+        }
 
         internal static int Initialize()
         {
@@ -120,6 +184,10 @@ namespace MelonLoader
 
             MelonEvents.MelonHarmonyEarlyInit.Invoke();
             MelonEvents.OnPreInitialization.Invoke();
+
+            // Set up the chainloader entrypoint which harmony patches the main Unity assembly as soon as possible and
+            // unpatch it in our hooking method before calling the chainloader init method
+            AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
 
             return 0;
         }

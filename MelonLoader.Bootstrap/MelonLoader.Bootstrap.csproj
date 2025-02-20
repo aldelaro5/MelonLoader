@@ -10,11 +10,14 @@
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <NoWarn>LNK4099</NoWarn>
         <InvariantGlobalization>true</InvariantGlobalization>
+        <DebugType>portable</DebugType>
     </PropertyGroup>
     
     <PropertyGroup Condition="'$(RuntimeIdentifier.StartsWith(`linux-`))' == 'true'">
         <ExportsFile>linuxexports.def</ExportsFile>
+        <StripSymbols>false</StripSymbols>
         <LinuxEntryPath>Deps/$(RuntimeIdentifier)/linuxentry.o</LinuxEntryPath>
+        <LinuxPltHookPath>Deps/$(RuntimeIdentifier)/plthook.o</LinuxPltHookPath>
     </PropertyGroup>
 
     <ItemGroup Condition="'$(RuntimeIdentifier.StartsWith(`win-`))' == 'true'">
@@ -61,25 +64,31 @@
 
     <ItemGroup>
         <NativeLibrary Include="$(AppHostPath)" />
-        <NativeLibrary Include="Deps/$(RuntimeIdentifier)/$(LibPrefix)dobby$(LibExt)" />
+<!--        <None Include="Deps/$(RuntimeIdentifier)/$(LibPrefix)dobby$(LibExt)" Link="$(LibPrefix)dobby$(LibExt)" CopyToOutputDirectory="Always" />-->
     </ItemGroup>
 
     <ItemGroup Condition="'$(RuntimeIdentifier.StartsWith(`linux-`))' == 'true'">
         <NativeLibrary Include="$(LinuxEntryPath)" />
+        <NativeLibrary Include="$(LinuxPltHookPath)" />
     </ItemGroup>
 
     <ItemGroup>
       <ClCompile Include="LinuxEntry\LinuxEntry.cpp" />
+      <ClCompile Include="LinuxEntry\plthook\plthook_elf.c" />
     </ItemGroup>
 
     <Target Name="PublishAsBuildAfterTarget" AfterTargets="Build" DependsOnTargets="Publish" />
     
     <Target Condition="'$(RuntimeIdentifier.StartsWith(`linux-`))' == 'true'" Name="BuildLinuxEntry" BeforeTargets="Build">
-        <Exec Command="g++ -c -O2 -fPIC LinuxEntry/LinuxEntry.cpp -o $(LinuxEntryPath)" />
+        <Exec Command="g++ -g -c -O0 -fpermissive -fPIC LinuxEntry/LinuxEntry.cpp -o $(LinuxEntryPath)" />
+        <Exec Command="g++ -g -c -O0 -fpermissive -fPIC LinuxEntry/plthook/plthook_elf.c  -o $(LinuxPltHookPath)"/>
     </Target>
 
     <Target Condition="'$(RuntimeIdentifier.StartsWith(`win-`))' == 'true'" Name="RenameBinary" AfterTargets="Build">
         <Move SourceFiles="$(PublishDir)/$(TargetName).dll" DestinationFiles="$(PublishDir)/version.dll" />
     </Target>
 
+    <Target Condition="'$(RuntimeIdentifier.StartsWith(`win-`))' == 'false'" Name="CopyDobby" AfterTargets="Build">
+        <Copy SourceFiles="Deps/$(RuntimeIdentifier)/$(LibPrefix)dobby.so" DestinationFiles="$(PublishDir)/$(LibPrefix)dobby.so" />
+    </Target>
 </Project>
